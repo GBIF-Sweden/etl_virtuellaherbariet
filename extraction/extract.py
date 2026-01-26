@@ -170,6 +170,23 @@ def _download_page_with_retry(
     return []
 
 
-def _write_page_rows(*args, **kwargs):
-    """Stub for the next micro-commit."""
-    return 0, False
+def _write_page_rows(
+    writer: csv.writer,
+    page_rows: list[list[str]],
+    header_written: bool,
+) -> tuple[int, bool]:
+    if not page_rows:
+        return 0, header_written
+
+    page_header = page_rows[0]
+    data_start_index = 1 if page_header else 0
+    data_rows = page_rows[data_start_index:]
+
+    if not header_written and page_header:
+        writer.writerow(page_header)
+        header_written = True
+
+    for row in data_rows:
+        writer.writerow(row)
+
+    return len(data_rows), header_written
