@@ -114,3 +114,23 @@ def validate_config(config):
         pass
 
     return True, None
+
+
+def load_config(config_path):
+    logger = logging.getLogger(__name__)
+    try:
+        logger.info("Loading configuration from: %s", config_path)
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+
+        is_valid, error_msg = validate_config(config)
+        if not is_valid:
+            raise ConfigError(f"Invalid configuration: {error_msg}")
+
+        logger.info("Configuration loaded successfully for herbarium: %s", config.get("herbarium"))
+        return config
+
+    except FileNotFoundError:
+        raise ConfigError(f"Config file not found: {config_path}")
+    except yaml.YAMLError as e:
+        raise ConfigError(f"Error parsing config file: {e}") from e
