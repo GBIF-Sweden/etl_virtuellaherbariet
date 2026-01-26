@@ -74,5 +74,87 @@ def save_to_database(df: pd.DataFrame, config: dict[str, Any], inst_code: str) -
         future=True,
         connect_args={"connect_timeout": 10},
     )
-    # Batch processing will be added in the next micro-commit.
-    engine.dispose()
+    session_cls = sessionmaker(bind=engine, future=True)
+
+    try:
+        with session_cls() as session:
+            table = Table(table_name, MetaData(), autoload_with=engine)
+            table_cols = {c.name for c in table.c}
+            keep_cols = [c for c in df.columns if c in table_cols]
+            df_filtered = df[keep_cols].copy().replace({np.nan: None})
+
+            total_rows = len(df_filtered)
+            logger.info(
+                "Writing to MySQL host=%s db=%s table=%s rows=%s batch_size=%s cols=%s mode=%s",
+                host,
+                dbname,
+                table_name,
+                f"{total_rows:,}",
+                batch_size,
+                len(keep_cols),
+                write_mode,
+            )
+
+            if pk and pk in df_filtered.columns:
+                unique_pk = df_filtered[pk].nunique(dropna=True)
+                logger.info("Unique %s values: %s", pk, f"{unique_pk:,}")
+                logger.info("Duplicate %s rows: %s", pk, f"{(total_rows - unique_pk):,}")
+
+            for start in range(0, total_rows, batch_size):
+                end = min(start + batch_size, total_rows)
+                records = df_filtered.iloc[start:end].to_dict(orient="records")
+                if not records:
+                    continue
+
+                attempt = 0
+                backoff = max(0.1, db_retry_initial_backoff)
+                while True:
+                    try:
+                        ins = mysql_insert(table).values(records)
+                        if write_mode == "ignore":
+                            stmt = ins.prefix_with("IGNORE")
+                        else:
+                            excluded = {pk} if pk else set()
+                            update_cols = {c.name: ins.inserted[c.name] for c in table.c if c.name not in excluded}
+                            stmt = ins.on_duplicate_key_update(**update_cols)
+
+                        result = session.execute(stmt)
+                        session.commit()
+                        logger.info("Batch %s:%s rowcount=%s", start, end, getattr(result, "rowcount", None))
+
+                        warns = session.execute(text("SHOW WARNINGS")).fetchall()
+                        if warns:
+                            logger.warning("Batch %s:%s warnings (up to 10): %s", start, end, warns[:10])
+                        break
+                    except SQLAlchemyError as e:
+                        session.rollback()
+                        attempt += 1
+                        if attempt >= db_max_retries:
+                            logger.error(
+                                "Error in batch rows %s:%s after %s attempts: %s",
+                                start,
+                                end,
+                                db_max_retries,
+                                e,
+                                exc_info=True,
+                            )
+                            raise
+                        sleep_time = min(backoff, db_retry_max_backoff) + random.uniform(0, 0.5)
+                        logger.warning(
+                            "DB batch %s:%s failed (attempt %s/%s). Retrying in %.1fs: %s",
+                            start,
+                            end,
+                            attempt,
+                            db_max_retries,
+                            sleep_time,
+                            e,
+                        )
+                        time.sleep(sleep_time)
+                        backoff = min(backoff * 2, db_retry_max_backoff)
+    finally:
+        engine.dispose()
+
+
+def save_to_csv(df: pd.DataFrame, processed_dir: str, filename: str = "occurrence.txt", mode: str = "w", header: bool = True) -> None:
+    """Stub for the next micro-commit."""
+    pass
