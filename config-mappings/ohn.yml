@@ -1,0 +1,63 @@
+herbarium: OHN
+downloadDir: data/verbatim
+downloadPageSize: 1000
+downloadMaxPages: 20000
+processedDir: data/processed/OHN
+csv_settings: {}
+mappings:
+  instcode: institutionCode
+  accessionno: catalogNumber
+  dag: day
+  manad: month
+  ar: year
+  datum: eventDate
+  taxaname: scientificName
+  genus: genus
+  species: specificEpithet
+  inomartsrang: infraspecificRank
+  inomartsepitet: infraspecificEpithet
+  highertaxa: higherClassification
+  collector: recordedBy
+  collectornumber: recordNumber
+  comment: occurrenceRemarks
+  continent: continent
+  country: country
+  province: stateProvince
+  district: county
+  location: locality
+  habitat: habitat
+  altitude: verbatimElevation
+  originalnamn: verbatimIdentification
+  image: associatedMedia
+  originaltext: verbatimLabel
+  notes: identificationRemarks
+  riketsn: verbatimLatitude
+  riketso: verbatimLongitude
+  wgs84_lat: decimalLatitude
+  wgs84_lng: decimalLongitude
+  rubin: georeferenceRemarks
+  typestatus: typeStatus
+  basionym: originalNameUsage
+  typeauktor: scientificNameAuthorship
+  history: previousIdentifications
+  hybridname: taxonRemarks
+defaults:
+  basisOfRecord: PreservedSpecimen
+  collectionCode: OHN
+  institutionCode: BMO
+transformations:
+- column: occurrenceID
+  type: combine_columns
+  columns:
+  - institutionCode
+  - collectionCode
+  - catalogNumber
+  separator: ':'
+database:
+  writeToDatabase: false
+  mode: ignore
+  hostname: nrm-arda.nrm.se
+  port: 3306
+  dbname: svh_dwc_exports
+  table: dwc_ohn
+  pk_column: occurrenceID
