@@ -100,8 +100,73 @@ def download_csv(
     logger.info("Download complete: %s records saved to %s", f"{total_data_rows:,}", output_file)
 
 
-def _download_page_with_retry(*args, **kwargs):
-    """Stub for the next micro-commit."""
+def _download_page_with_retry(
+    session: requests.Session,
+    url: str,
+    payload: dict[str, Any],
+    base_filters: list[dict[str, Any]],
+    offset: int,
+    page_size: int,
+    max_retries: int,
+    connect_timeout: int,
+    read_timeout: int,
+    initial_backoff_seconds: float,
+    max_backoff_seconds: float,
+    retryable_statuses: set[int],
+    logger: logging.Logger,
+) -> list[list[str]]:
+    def _build_filter(variabel: str, value: str) -> dict[str, Any]:
+        # Match API filter shape used elsewhere in this project.
+        return {"variabel": variabel, "varde": value, "typ": "="}
+
+    request_payload = {
+        **payload,
+        "filters": [
+            *base_filters,
+            _build_filter("take", str(page_size)),
+            _build_filter("skip", str(offset)),
+        ],
+    }
+    backoff_seconds = max(0.1, float(initial_backoff_seconds))
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info("Download attempt %s/%s (skip=%s, take=%s)...", attempt, max_retries, offset, page_size)
+            with session.post(
+                url,
+                json=request_payload,
+                stream=True,
+                timeout=(connect_timeout, read_timeout),
+                headers={"Accept": "text/csv, */*", "Accept-Encoding": "gzip, deflate"},
+            ) as response:
+                if response.status_code in retryable_statuses:
+                    raise requests.exceptions.HTTPError(
+                        f"Retryable HTTP status {response.status_code}",
+                        response=response,
+                    )
+                response.raise_for_status()
+                response.encoding = "utf-8"
+
+                text_stream = io.TextIOWrapper(response.raw, encoding="utf-8", newline="")
+                reader = csv.reader(text_stream)
+                return [row for row in reader if row]
+        except (
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.HTTPError,
+            requests.exceptions.ChunkedEncodingError,
+            urllib3.exceptions.ProtocolError,
+        ) as e:
+            if attempt >= max_retries:
+                logger.error("Failed to download page after %s attempts (skip=%s, take=%s).", max_retries, offset, page_size)
+                raise
+            sleep_time = min(backoff_seconds, max_backoff_seconds) + random.uniform(0, 1)
+            logger.warning("Download error: %s. Retrying in %.1fs...", e, sleep_time)
+            time.sleep(sleep_time)
+            backoff_seconds = min(backoff_seconds * 2, max_backoff_seconds)
+        except Exception:
+            logger.error("Unexpected error while downloading page (skip=%s, take=%s).", offset, page_size, exc_info=True)
+            raise
     return []
 
 
