@@ -263,5 +263,105 @@ def process_csv(config, csv_file, strict=False, config_path=None, action="proces
         save_to_database(df, config, inst_code)
         total_output += len(df)
 
-    # Reporting logic will follow in the next micro-commit.
-    return True
+    logger.info("Successfully read %s, %s rows.", csv_file, total_input)
+    logger.info("Combined DataFrame created with %s rows.", total_input)
+
+    quality_report = {
+        "herbarium": inst_code,
+        "run_id": run_id,
+        "timestamp": datetime.now().isoformat(),
+        "duration_seconds": round(time.time() - start_time, 2),
+        "extraction": {
+            "input_rows_after_repair": total_input,
+            "repaired_rows_total": repaired_count,
+            "malformed_rows_total": malformed_count,
+            "too_short_rows": int(preprocess_stats.get("too_short_rows", 0)),
+            "too_long_rows": int(preprocess_stats.get("too_long_rows", 0)),
+            "malformed_file": preprocess_stats.get("malformed_file"),
+        },
+        "transformation": {
+            "duplicates": {
+                "policy": duplicate_policy,
+                "duplicate_rows_detected": total_duplicates,
+                "duplicate_keys": duplicate_keys,
+                "duplicate_rows_dropped": int(total_input - total_missing_pk - total_output),
+                "duplicates_file": duplicates_path if wrote_duplicates_header else None,
+            },
+        },
+        "output": {
+            "total_input_rows": total_input,
+            "total_output_rows": total_output,
+            "missing_primary_key_rows": total_missing_pk,
+        },
+        "status": "success",
+    }
+
+    report_path_run = os.path.join(processed_dir, f"quality_report_{inst_code.lower()}_{run_id}.json")
+    report_path_latest = os.path.join(processed_dir, f"quality_report_{inst_code.lower()}.json")
+    for p in (report_path_run, report_path_latest):
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(quality_report, f, indent=2)
+    logger.info("Wrote quality reports: %s and %s", report_path_run, report_path_latest)
+
+    output_checksum_sha256 = None
+    if os.path.exists(output_path):
+        h = hashlib.sha256()
+        with open(output_path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                h.update(chunk)
+        output_checksum_sha256 = h.hexdigest()
+
+    reconciliation = {
+        "herbarium": inst_code,
+        "run_id": run_id,
+        "timestamp": datetime.now().isoformat(),
+        "input_csv": csv_file,
+        "output_csv": output_path,
+        "output_checksum_sha256": output_checksum_sha256,
+        "row_counts": {
+            "total_input_rows": total_input,
+            "missing_primary_key_rows": total_missing_pk,
+            "duplicate_rows_detected": total_duplicates,
+            "duplicate_rows_dropped": quality_report["transformation"]["duplicates"]["duplicate_rows_dropped"],
+            "total_output_rows": total_output,
+        },
+        "status": quality_report["status"],
+    }
+    reconcile_run = os.path.join(processed_dir, f"reconciliation_{inst_code.lower()}_{run_id}.json")
+    reconcile_latest = os.path.join(processed_dir, f"reconciliation_{inst_code.lower()}.json")
+    for p in (reconcile_run, reconcile_latest):
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(reconciliation, f, indent=2)
+    logger.info("Wrote reconciliation reports: %s and %s", reconcile_run, reconcile_latest)
+
+    if strict and (malformed_count > 0 or quality_report["transformation"]["duplicates"]["duplicate_rows_dropped"] > 0):
+        error_msg = (
+            "STRICT MODE FAILURE: "
+            f"{malformed_count} malformed rows, "
+            f"{quality_report['transformation']['duplicates']['duplicate_rows_dropped']} duplicate rows dropped."
+        )
+        quality_report["status"] = "failed"
+        quality_report["error"] = error_msg
+        reconciliation["status"] = "failed"
+        reconciliation["error"] = error_msg
+        for p in (report_path_run, report_path_latest):
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(quality_report, f, indent=2)
+        for p in (reconcile_run, reconcile_latest):
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(reconciliation, f, indent=2)
+        raise ValueError(error_msg)
+    if strict and repaired_count > 0:
+        logger.warning("Strict mode warning: repaired_rows_total=%s (allowed).", repaired_count)
+
+    logger.info(
+        "SUMMARY config=%s action=%s repaired=%s malformed=%s dup_detected=%s dup_dropped=%s report=%s",
+        config_path or "n/a",
+        action,
+        repaired_count,
+        malformed_count,
+        total_duplicates,
+        quality_report["transformation"]["duplicates"]["duplicate_rows_dropped"],
+        report_path_run,
+    )
+    logger.info("ETL process completed successfully for herbarium=%s run_id=%s", inst_code, run_id)
