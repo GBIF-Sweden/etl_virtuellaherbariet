@@ -122,3 +122,57 @@ def preprocess_csv(csv_file, inst_code, malformed_dir="data/malformed"):
     finally:
         if f_malformed and not f_malformed.closed:
             f_malformed.close()
+
+
+def process_csv(config, csv_file, strict=False, config_path=None, action="process"):
+    logger = logging.getLogger("etl_virtuellaherbariet")
+    inst_code = config.get("herbarium")
+    processed_dir = config.get("processedDir", "data/processed")
+    chunk_size = int(config.get("chunkSize", 50000))
+    csv_settings = config.get("csv_settings", {})
+
+    if not inst_code:
+        raise ValueError("'herbarium' not found in config.")
+    if not os.path.exists(csv_file):
+        raise FileNotFoundError(f"CSV file not found: {csv_file}")
+
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    start_time = time.time()
+    logger.info("Process run started. herbarium=%s run_id=%s strict=%s", inst_code, run_id, strict)
+
+    csv_file_to_read, preprocess_stats = preprocess_csv(csv_file, inst_code)
+    malformed_count = int(preprocess_stats.get("malformed_rows", 0))
+    repaired_count = int(preprocess_stats.get("repaired_rows", 0))
+    if repaired_count > 0:
+        logger.info("Repaired %s structurally inconsistent rows in %s.", repaired_count, csv_file)
+    read_kwargs = {
+        "encoding": "utf-8",
+        "low_memory": False,
+        "dtype": str,
+        "sep": ",",
+        "quotechar": '"',
+    }
+    if csv_settings:
+        read_kwargs.update(csv_settings)
+    if chunk_size <= 0:
+        raise ValueError("chunkSize must be a positive integer")
+    logger.info("CSV read settings: %s", read_kwargs)
+    logger.info("Chunk size: %s", chunk_size)
+
+    mappings = config.get("mappings", {})
+    raw_pk_column = "catalogNumber"
+    for source, target in mappings.items():
+        if target == "catalogNumber":
+            raw_pk_column = source
+            break
+
+    os.makedirs(processed_dir, exist_ok=True)
+    output_file = f"dwc_{inst_code.lower()}.csv"
+    output_path = os.path.join(processed_dir, output_file)
+    duplicates_path = os.path.join(processed_dir, f"duplicates_{inst_code.lower()}.csv")
+    for f in (output_path, duplicates_path):
+        if os.path.exists(f):
+            os.remove(f)
+
+    # Main chunking loop implementation will follow in the next micro-commit.
+    return True
