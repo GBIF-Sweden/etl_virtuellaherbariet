@@ -1,0 +1,83 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Data directories (exclude from image, mount as volumes)
+data/
+verbatim/
+processed/
+*.csv
+*.json
+!configs/*.json
+
+# Database (mount as volume)
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# Documentation
+README.md
+*.md
+!requirements.txt
+!README.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+tests/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Secrets and credentials
+secrets/
+.secrets/
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+id_rsa
+id_rsa.*
+*.ovpn
+*.kubeconfig
+.aws/
+.kube/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
