@@ -174,5 +174,94 @@ def process_csv(config, csv_file, strict=False, config_path=None, action="proces
         if os.path.exists(f):
             os.remove(f)
 
-    # Main chunking loop implementation will follow in the next micro-commit.
+    defaults = config.get("defaults", {})
+    seen_ids = set()
+    total_input = total_missing_pk = total_duplicates = total_output = 0
+    duplicate_keys = 0
+    duplicate_policy = (
+        config.get("load", {}).get("duplicatePolicy")
+        or config.get("database", {}).get("duplicatePolicy")
+        or "keep_first"
+    )
+    wrote_output_header = wrote_duplicates_header = False
+
+    reader = pd.read_csv(csv_file_to_read, chunksize=chunk_size, **read_kwargs)
+    for chunk_idx, df in enumerate(reader, start=1):
+        logger.info("Processing chunk %s with %s rows", chunk_idx, len(df))
+        logger.info("Extracted %s rows from source file.", len(df))
+        total_input += len(df)
+
+        if raw_pk_column in df.columns:
+            normalized_key = df[raw_pk_column].astype(str).str.strip()
+            missing_mask = df[raw_pk_column].isna() | (normalized_key == "")
+            total_missing_pk += int(missing_mask.sum())
+            df = df[~missing_mask].copy()
+
+        if df.empty:
+            continue
+
+        if mappings:
+            df.rename(columns=mappings, inplace=True)
+        if defaults:
+            for col, val in defaults.items():
+                df[col] = val
+        df = apply_transformations(df, config)
+
+        pk_col = "occurrenceID" if "occurrenceID" in df.columns else "catalogNumber"
+        if pk_col in df.columns:
+            normalized_id = df[pk_col].astype(str).str.strip().str.lower()
+            duplicate_mask_any = normalized_id.duplicated(keep=False) | normalized_id.isin(seen_ids)
+            duplicate_rows = df[duplicate_mask_any]
+            if not duplicate_rows.empty:
+                total_duplicates += int(len(duplicate_rows))
+                duplicate_keys += int(normalized_id[duplicate_mask_any].nunique())
+                duplicate_rows.to_csv(
+                    duplicates_path,
+                    mode="a",
+                    header=not wrote_duplicates_header,
+                    index=False,
+                    encoding="utf-8",
+                    sep="\t",
+                )
+                wrote_duplicates_header = True
+                logger.info("Wrote %s duplicate rows to %s.", len(duplicate_rows), duplicates_path)
+
+            if duplicate_policy == "drop_all_duplicates":
+                duplicate_values = set(normalized_id[duplicate_mask_any].tolist())
+                kept_mask = ~normalized_id.isin(duplicate_values)
+                df = df[kept_mask].copy()
+                normalized_id = normalized_id[kept_mask]
+            elif duplicate_policy == "keep_first":
+                kept_mask = ~(normalized_id.duplicated(keep="first") | normalized_id.isin(seen_ids))
+                df = df[kept_mask].copy()
+                normalized_id = normalized_id[kept_mask]
+            elif duplicate_policy == "keep_last":
+                kept_mask = ~(normalized_id.duplicated(keep="last") | normalized_id.isin(seen_ids))
+                df = df[kept_mask].copy()
+                normalized_id = normalized_id[kept_mask]
+            elif duplicate_policy == "write_only":
+                kept_mask = pd.Series([True] * len(df), index=df.index)
+            else:
+                raise ValueError(
+                    "duplicatePolicy must be one of: drop_all_duplicates, keep_first, keep_last, write_only"
+                )
+
+            seen_ids.update(normalized_id.tolist())
+
+        if df.empty:
+            continue
+
+        if "occurrenceID" in df.columns:
+            cols = ["occurrenceID"] + [c for c in df.columns if c != "occurrenceID"]
+            df = df[cols]
+
+        df = clean_dataframe(df)
+        logger.info("Number of rows after transformation: %s.", len(df))
+        logger.info("Number of columns after transformation: %s.", len(df.columns))
+        save_to_csv(df, processed_dir, filename=output_file, mode="a", header=not wrote_output_header)
+        wrote_output_header = True
+        save_to_database(df, config, inst_code)
+        total_output += len(df)
+
+    # Reporting logic will follow in the next micro-commit.
     return True
