@@ -156,5 +156,21 @@ def save_to_database(df: pd.DataFrame, config: dict[str, Any], inst_code: str) -
 
 
 def save_to_csv(df: pd.DataFrame, processed_dir: str, filename: str = "occurrence.txt", mode: str = "w", header: bool = True) -> None:
-    """Stub for the next micro-commit."""
-    pass
+    logger = logging.getLogger("etl_virtuellaherbariet")
+    os.makedirs(processed_dir, exist_ok=True)
+    outfile = os.path.join(processed_dir, filename)
+    try:
+        logger.info("Writing processed data to: %s", outfile)
+        df.to_csv(
+            outfile,
+            mode=mode,
+            header=header,
+            index=False,
+            encoding="utf-8",
+            sep="\t",
+            lineterminator="\n",
+        )
+        logger.info("Processed CSV saved successfully (%s bytes)", f"{os.path.getsize(outfile):,}")
+    except Exception as e:
+        logger.error("Error writing CSV file: %s", e, exc_info=True)
+        raise
