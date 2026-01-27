@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  etl:
+    build: .
+    image: etl_virtuellaherbariet:latest
+    container_name: etl_virtuellaherbariet_processor
+    env_file:
+      - .env
+    volumes:
+      - ./config-mappings:/app/config-mappings:ro
+      # Mount verbatim directory for downloaded data
+      - ./data/verbatim:/app/data/verbatim
+      # Mount processed directory for output
+      - ./data/processed:/app/data/processed
+      # Mount malformed directory
+      - ./data/malformed:/app/data/malformed
