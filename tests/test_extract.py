@@ -20,7 +20,7 @@ class _FakeProgress:
 
 sys.modules.setdefault("tqdm", types.SimpleNamespace(tqdm=lambda *args, **kwargs: _FakeProgress()))
 
-from extraction import download_csv
+from extraction import download_csv  # noqa: E402
 
 
 class FakeRaw(io.BytesIO):
