@@ -124,12 +124,6 @@ Strict mode:
   - `data/processed/<HERBARIUM>/reconciliation_<herbarium>.json` (latest)
 - **Database**: Rows are written directly to MySQL when `database.writeToDatabase=true`
 
-## Operations
-
-- Production runbook: [PRODUCTION_RUNBOOK.md](/home/manash/projects/etl_virtuellaherbariet/PRODUCTION_RUNBOOK.md)
-- Release hardening policy: [RELEASE_HARDENING.md](/home/manash/projects/etl_virtuellaherbariet/RELEASE_HARDENING.md)
-
-
 ## License
 
 MIT
