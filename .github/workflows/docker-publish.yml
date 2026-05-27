@@ -7,6 +7,7 @@ on:
       - master
     tags:
       - "v*"
+      - "*.*.*"
   pull_request:
     branches:
       - main
@@ -66,10 +67,12 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ steps.image.outputs.name }}
           tags: |
             type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
 
       - name: Build and push image
         uses: docker/build-push-action@v6
